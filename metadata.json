@@ -1,0 +1,6 @@
+{
+  "name": "Muévete! - La Habana",
+  "description": "Progressive Web App para el transporte en La Habana, Cuba con rutas, reportes en vivo y tracking.",
+  "requestFramePermissions": ["geolocation"],
+  "majorCapabilities": []
+}

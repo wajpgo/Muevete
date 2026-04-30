@@ -1,0 +1,118 @@
+version: "3.8"
+
+services:
+  # ==========================================
+  # MUEVETE! - NEXT.JS FRONTEND / PWA
+  # ==========================================
+  web:
+    build: 
+      context: ../
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - NEXT_PUBLIC_SUPABASE_URL=${SUPABASE_PUBLIC_URL}
+      - NEXT_PUBLIC_SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
+    networks:
+      - muevete_network
+    depends_on:
+      - supabase-kong
+
+  # ==========================================
+  # SUPABASE SELF-HOSTED (CORE COMPONENTS)
+  # Documentación: https://supabase.com/docs/guides/self-hosting/docker
+  # ==========================================
+  supabase-db:
+    image: supabase/postgres:15.1.0.84
+    healthcheck:
+      test: pg_isready -U postgres -h localhost
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    command: postgres -c config_file=/etc/postgresql/postgresql.conf
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - ./volumes/db/realtime.sql:/docker-entrypoint-initdb.d/migrations/99-realtime.sql
+      - ./volumes/db/roles.sql:/docker-entrypoint-initdb.d/init-scripts/98-roles.sql
+      - ./volumes/db/data:/var/lib/postgresql/data
+    networks:
+      - muevete_network
+
+  supabase-realtime:
+    image: supabase/realtime:v2.24.18
+    depends_on:
+      supabase-db:
+        condition: service_healthy
+    restart: unless-stopped
+    environment:
+      DB_HOST: supabase-db
+      DB_PORT: 5432
+      DB_NAME: postgres
+      DB_USER: postgres
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      PORT: 4000
+      JWT_SECRET: ${JWT_SECRET}
+      REPLICATION_MODE: RLS
+      REPLICATION_POLL_INTERVAL: 100
+      SECURE_CHANNELS: "true"
+      SLOT_NAME: supabase_realtime
+      TENANT_ID: realtime
+    networks:
+      - muevete_network
+
+  supabase-rest:
+    image: postgrest/postgrest:v11.2.0
+    depends_on:
+      supabase-db:
+        condition: service_healthy
+    restart: unless-stopped
+    environment:
+      PGRST_DB_URI: postgres://authenticator:${POSTGRES_PASSWORD}@supabase-db:5432/postgres
+      PGRST_DB_SCHEMA: public, storage
+      PGRST_DB_ANON_ROLE: anon
+      PGRST_JWT_SECRET: ${JWT_SECRET}
+    networks:
+      - muevete_network
+
+  supabase-auth:
+    image: supabase/gotrue:v2.105.0
+    depends_on:
+      supabase-db:
+        condition: service_healthy
+    restart: unless-stopped
+    environment:
+      GOTRUE_API_HOST: 0.0.0.0
+      GOTRUE_API_PORT: 9999
+      API_EXTERNAL_URL: ${SUPABASE_PUBLIC_URL}
+      GOTRUE_DB_DRIVER: postgres
+      GOTRUE_DB_DATABASE_URL: postgres://supabase_auth_admin:${POSTGRES_PASSWORD}@supabase-db:5432/postgres
+      GOTRUE_SITE_URL: ${SITE_URL}
+      GOTRUE_JWT_SECRET: ${JWT_SECRET}
+    networks:
+      - muevete_network
+
+  # Kong serves as the API Gateway
+  supabase-kong:
+    image: kong:2.8.1
+    restart: unless-stopped
+    ports:
+      - "8000:8000/tcp"
+    environment:
+      KONG_DATABASE: "off"
+      KONG_DECLARATIVE_CONFIG: /var/lib/kong/kong.yml
+      KONG_DNS_ORDER: LAST,A,CNAME
+      KONG_PLUGINS: request-transformer,cors,key-auth,acl,basic-auth
+    volumes:
+      - ./volumes/api/kong.yml:/var/lib/kong/kong.yml
+    networks:
+      - muevete_network
+
+networks:
+  muevete_network:
+    driver: bridge
