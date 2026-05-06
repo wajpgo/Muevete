@@ -29,7 +29,7 @@ function ChangeView({ center, zoom }: { center: [number, number]; zoom: number }
 }
 
 export default function MapPage() {
-  const { userLocation, setUserLocation, isSharingLocation, setIsSharingLocation, selectedRoute, setSelectedRoute, isLightMap, setIsLightMap } = useAppStore();
+  const { userLocation, setUserLocation, isSharingLocation, setIsSharingLocation, selectedRoute, setSelectedRoute, isLightMap, setIsLightMap, userProfile } = useAppStore();
   const [activeUsers, setActiveUsers] = useState<Record<string, { lat: number; lng: number; route: string }>>({});
   
   // Exact OSM Data
@@ -163,23 +163,25 @@ export default function MapPage() {
             }
           }));
         })
-        .subscribe();
-
-      geoWatchId = navigator.geolocation.watchPosition((position) => {
-        const { latitude, longitude } = position.coords;
-        setUserLocation([latitude, longitude]);
-        
-        trackChannel?.send({
-          type: 'broadcast',
-          event: 'location_update',
-          payload: {
-            user_id: supabase.auth.getUser() || 'anonymous_' + Math.floor(Math.random()*1000),
-            lat: latitude,
-            lng: longitude,
-            route: selectedRoute,
+        .subscribe((status) => {
+          if (status === 'SUBSCRIBED') {
+            geoWatchId = navigator.geolocation.watchPosition((position) => {
+              const { latitude, longitude } = position.coords;
+              setUserLocation([latitude, longitude]);
+              
+              trackChannel?.send({
+                type: 'broadcast',
+                event: 'location_update',
+                payload: {
+                  user_id: userProfile?.id || 'anonymous_' + Math.floor(Math.random()*1000),
+                  lat: latitude,
+                  lng: longitude,
+                  route: selectedRoute,
+                }
+              }).catch(() => {});
+            }, console.error, { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 });
           }
         });
-      }, console.error, { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 });
     } else {
       setActiveUsers({}); 
     }
@@ -338,7 +340,7 @@ export default function MapPage() {
         )}
 
         {/* Render other users on the bus */}
-        {Object.values(activeUsers).map((u, i) => (
+        {(Object.values(activeUsers) as Array<{lat: number, lng: number, route: string}>).map((u, i) => (
           <Marker 
             key={i} 
             position={[u.lat, u.lng]}
