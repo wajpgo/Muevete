@@ -9,7 +9,7 @@
     "preview": "vite preview",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit",
-    "deploy": "wrangler deploy"
+    "deploy": "wrangler deploy --assets=./dist"
   },
   "dependencies": {
     "@google/genai": "^1.29.0",
